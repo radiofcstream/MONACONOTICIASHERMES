@@ -99,80 +99,74 @@ section.content{max-width:1200px;margin:55px auto;padding:0 20px}h2{font-family:
 const audio = document.getElementById('audio');
 const play = document.getElementById('play');
 const statusEl = document.getElementById('status');
-let keepAliveTimer = null;
-let isUserPaused = false;
+
+let userStopped = false;
+let watchdog = null;
 
 audio.src = '/radio-stream';
-audio.preload = 'auto';
 
-function toggle() {
+// Alternar reproducción
+function togglePlay() {
   if (audio.paused) {
-    isUserPaused = false;
+    userStopped = false;
     statusEl.textContent = 'Conectando…';
     audio.load();
-    audio.play().catch(() => {
-      statusEl.textContent = 'Reconectando…';
+    audio.play().then(()=>{
+      statusEl.textContent = 'Reproduciendo en vivo';
+    }).catch(err => {
+      statusEl.textContent = 'Error al conectar';
     });
   } else {
-    isUserPaused = true;
+    userStopped = true;
     audio.pause();
   }
 }
 
-function maintainStream() {
-  if (!isUserPaused && audio.paused && !audio.ended) {
-    statusEl.textContent = 'Reanudando…';
-    audio.load();
-    audio.play().catch(() => {});
-  }
+// VIGILANCIA: Si se pausa solo → reiniciar
+function startWatchdog() {
+  if (watchdog) clearInterval(watchdog);
+  watchdog = setInterval(() => {
+    if (!userStopped && audio.paused) {
+      statusEl.textContent = 'Reconectando…';
+      audio.load();
+      audio.play().catch(() => {});
+    }
+  }, 1500); // Revisar cada 1.5 segundos
 }
 
-audio.onplay = () => {
-  isUserPaused = false;
+// Eventos
+play.addEventListener('click', togglePlay);
+document.getElementById('heroPlay').addEventListener('click', () => {
+  if (audio.paused) togglePlay();
+  document.getElementById('escuchanos').scrollIntoView({ behavior: 'smooth' });
+});
+
+audio.addEventListener('play', () => {
   play.textContent = 'Ⅱ';
   statusEl.textContent = 'Reproduciendo en vivo';
-  if (!keepAliveTimer) keepAliveTimer = setInterval(maintainStream, 3000);
-};
+  userStopped = false;
+  startWatchdog();
+});
 
-audio.onpause = () => {
+audio.addEventListener('pause', () => {
   play.textContent = '▶';
-  if (isUserPaused) {
+  if (userStopped) {
     statusEl.textContent = 'Reproducción pausada';
-    if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+    if (watchdog) clearInterval(watchdog);
   }
-};
+});
 
-audio.onended = () => {
-  if (!isUserPaused) {
-    statusEl.textContent = 'Reconectando…';
-    setTimeout(() => { audio.load(); audio.play().catch(() => {}); }, 1500);
-  }
-};
-
-audio.onerror = () => {
-  if (!isUserPaused) {
+audio.addEventListener('error', () => {
+  if (!userStopped) {
     statusEl.textContent = 'Error — reconectando…';
-    setTimeout(() => { audio.load(); audio.play().catch(() => {}); }, 3000);
   }
-};
+});
 
-audio.onstalled = audio.onsuspend = () => {
-  if (!isUserPaused) statusEl.textContent = 'Cargando…';
-};
-
-audio.onwaiting = () => {
-  if (!isUserPaused) statusEl.textContent = 'Esperando datos…';
-};
-
-play.onclick = toggle;
-document.getElementById('heroPlay').onclick = () => {
-  if (audio.paused) {
-    toggle();
-    document.getElementById('escuchanos').scrollIntoView({ behavior: 'smooth' });
-  } else {
-    document.getElementById('escuchanos').scrollIntoView({ behavior: 'smooth' });
+audio.addEventListener('ended', () => {
+  if (!userStopped) {
+    statusEl.textContent = 'Transmisión finalizada — reconectando…';
   }
-};
+});
 
 // Onda visual y compartir
 for (const id of ['wave', 'wave2']) {
