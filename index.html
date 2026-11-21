@@ -47,7 +47,7 @@ section.content{max-width:1200px;margin:55px auto;padding:0 20px}h2{font-family:
 
 .rss-card {
   background: #0b1710;
-  border: 183624;
+  border: 1px solid #183624;
   border-radius: 8px;
   overflow: hidden;
   transition: .25s;
@@ -96,75 +96,105 @@ section.content{max-width:1200px;margin:55px auto;padding:0 20px}h2{font-family:
 <div class="player"><button class="play" id="play" aria-label="Reproducir">▶</button><div><div class="now">EN VIVO · MONACO 98.7 FM</div><div class="wave leftwave" id="wave"></div><div class="status" id="status">Listos para transmitir</div></div><div class="centerlogo"><img src="/assets/monaco.png" alt="MONACO FM"></div><div class="wave rightwave" id="wave2"></div><div></div></div>
 <audio id="audio" preload="auto" crossorigin="anonymous">
 <script>
-const audio=document.getElementById('audio'),play=document.getElementById('play'),statusEl=document.getElementById('status');
-audio.src='/radio-stream';
+const audio = document.getElementById('audio');
+const play = document.getElementById('play');
+const statusEl = document.getElementById('status');
+let keepAliveTimer = null;
+let isUserPaused = false;
 
-function toggle(){
-  if(audio.paused){
-    statusEl.textContent='Conectando…';
-    audio.play()
-      .then(()=>{})
-      .catch((err)=>{
-        console.log('Error al reproducir:', err);
-        statusEl.textContent='Reintentando en 5 segundos…';
-      });
-  }else {
+audio.src = '/radio-stream';
+audio.preload = 'auto';
+
+function toggle() {
+  if (audio.paused) {
+    isUserPaused = false;
+    statusEl.textContent = 'Conectando…';
+    audio.load();
+    audio.play().catch(() => {
+      statusEl.textContent = 'Reconectando…';
+    });
+  } else {
+    isUserPaused = true;
     audio.pause();
   }
 }
 
-// Reconexión automática
-audio.onstalled = () => {
-  statusEl.textContent='Sin datos — reconectando…';
+function maintainStream() {
+  if (!isUserPaused && audio.paused && !audio.ended) {
+    statusEl.textContent = 'Reanudando…';
+    audio.load();
+    audio.play().catch(() => {});
+  }
+}
+
+audio.onplay = () => {
+  isUserPaused = false;
+  play.textContent = 'Ⅱ';
+  statusEl.textContent = 'Reproduciendo en vivo';
+  if (!keepAliveTimer) keepAliveTimer = setInterval(maintainStream, 3000);
 };
 
-audio.onwaiting = () => {
-  statusEl.textContent='Cargando…';
-};
-
-audio.onended = () => {
-  statusEl.textContent='Transmisión finalizada — reconectando…';
-  setTimeout(() => {
-    if (!audio.paused) audio.play().catch(()=>{});
-  }, 3000);
-};
-
-audio.onerror = () => {
-  statusEl.textContent='Error — reconectando…';
-  setTimeout(() => {
-    if (!audio.paused) {
-      audio.load();
-      audio.play().catch(()=>{});
-    }
-  }, 5000);
-};
-
-// Botones de reproducción
-play.onclick=toggle;
-document.getElementById('heroPlay').onclick=()=>{
-  if(audio.paused){
-    toggle();
-    document.getElementById('escuchanos').scrollIntoView({behavior:'smooth'});
-  }else {
-    document.getElementById('escuchanos').scrollIntoView({behavior:'smooth'});
+audio.onpause = () => {
+  play.textContent = '▶';
+  if (isUserPaused) {
+    statusEl.textContent = 'Reproducción pausada';
+    if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
   }
 };
 
-audio.onplaying=()=>{
-  play.textContent='Ⅱ';
-  statusEl.textContent='Reproduciendo en vivo';
+audio.onended = () => {
+  if (!isUserPaused) {
+    statusEl.textContent = 'Reconectando…';
+    setTimeout(() => { audio.load(); audio.play().catch(() => {}); }, 1500);
+  }
 };
 
-audio.onpause=()=>{
-  play.textContent='▶';
-  if(!audio.ended) statusEl.textContent='Reproducción pausada';
+audio.onerror = () => {
+  if (!isUserPaused) {
+    statusEl.textContent = 'Error — reconectando…';
+    setTimeout(() => { audio.load(); audio.play().catch(() => {}); }, 3000);
+  }
 };
 
-// Onda y compartir
-for(const id of ['wave','wave2']){const el=document.getElementById(id);for(let i=0;i<65;i++){let b=document.createElement('i');b.style.setProperty('--h',(8+Math.random()*32)+'px');el.appendChild(b)}}
-document.getElementById('share').onclick=async()=>{const data={title:'MONACO 98.7 FM',text:'Escuchá MONACO 98.7 FM - Gral. Belgrano, Formosa',url:location.href};if(navigator.share){try{await navigator.share(data)}catch(e){}}else{await navigator.clipboard.writeText(location.href);alert('Enlace copiado') }};
+audio.onstalled = audio.onsuspend = () => {
+  if (!isUserPaused) statusEl.textContent = 'Cargando…';
+};
 
-// BOTÓN INSTALAR PWA
+audio.onwaiting = () => {
+  if (!isUserPaused) statusEl.textContent = 'Esperando datos…';
+};
+
+play.onclick = toggle;
+document.getElementById('heroPlay').onclick = () => {
+  if (audio.paused) {
+    toggle();
+    document.getElementById('escuchanos').scrollIntoView({ behavior: 'smooth' });
+  } else {
+    document.getElementById('escuchanos').scrollIntoView({ behavior: 'smooth' });
+  }
+};
+
+// Onda visual y compartir
+for (const id of ['wave', 'wave2']) {
+  const el = document.getElementById(id);
+  for (let i = 0; i < 65; i++) {
+    let b = document.createElement('i');
+    b.style.setProperty('--h', (8 + Math.random() * 32) + 'px');
+    el.appendChild(b);
+  }
+}
+
+document.getElementById('share').onclick = async () => {
+  const data = { title: 'MONACO 98.7 FM', text: 'Escuchá MONACO 98.7 FM - Gral. Belgrano, Formosa', url: location.href };
+  if (navigator.share) {
+    try { await navigator.share(data) } catch (e) {}
+  } else {
+    await navigator.clipboard.writeText(location.href);
+    alert('Enlace copiado');
+  }
+};
+
+// Botón Instalar PWA
 let deferredPrompt;
 const installBtn = document.getElementById('installPWA');
 
@@ -280,8 +310,7 @@ async function load() {
     }
 
     if (!ownNews.length && !rss.length) {
-      news.innerHTML =
-        '<p class="empty">Próximamente nuevas noticias.</p>';
+      news.innerHTML = '<p class="empty">Próximamente nuevas noticias.</p>';
     }
 
     programs.innerHTML = '';
@@ -311,19 +340,16 @@ async function load() {
     });
 
     if (!(data.programs || []).length) {
-      programs.innerHTML =
-        '<p class="empty">La programación se actualizará próximamente.</p>';
+      programs.innerHTML = '<p class="empty">La programación se actualizará próximamente.</p>';
     }
 
   } catch (error) {
     console.error('MONACO RSS:', error);
-    news.innerHTML =
-      '<p class="empty">No se pudieron cargar las noticias.</p>';
+    news.innerHTML = '<p class="empty">No se pudieron cargar las noticias.</p>';
   }
 }
 
 load();
-
 </script>
 </body>
 </html>
